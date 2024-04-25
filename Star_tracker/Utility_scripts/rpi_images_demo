@@ -1,0 +1,166 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from PIL import Image
+
+# Function to extract quaternion components from attitude data
+def extract_quaternion(attitude):
+    lines = attitude.strip().split('\n')
+    q0 = float(lines[0].split()[-1])
+    q1 = float(lines[1].split()[-1])
+    q2 = float(lines[2].split()[-1])
+    q3 = float(lines[3].split()[-1])
+    
+    # Normalize quaternion to have unit norm
+    norm = np.sqrt(q0**2 + q1**2 + q2**2 + q3**2)
+    q0 /= norm
+    q1 /= norm
+    q2 /= norm
+    q3 /= norm
+    
+    return q0, q1, q2, q3
+
+def plot_quaternion(ax, attitude):
+    if not attitude.strip():  # Check if attitude data is empty
+        return
+    
+    lines = attitude.strip().split('\n')
+    q0 = float(lines[0].split()[-1])
+    q1 = float(lines[1].split()[-1])
+    q2 = float(lines[2].split()[-1])
+    q3 = float(lines[3].split()[-1])
+    
+    # Normalize quaternion to have unit norm
+    norm = np.sqrt(q0**2 + q1**2 + q2**2 + q3**2)
+    q0 /= norm
+    q1 /= norm
+    q2 /= norm
+    q3 /= norm
+
+    # Plot vector part of the quaternion
+    ax.quiver(0, 0, 0, q1, q2, q3, color='m', normalize=True)
+    
+    # Plot reference axes
+    ax.quiver(0, 0, 0, 1, 0, 0, color='r', length=1, arrow_length_ratio=0.1)
+    ax.quiver(0, 0, 0, 0, 1, 0, color='g', length=1, arrow_length_ratio=0.1)
+    ax.quiver(0, 0, 0, 0, 0, 1, color='b', length=1, arrow_length_ratio=0.1)
+
+    # Set plot limits and labels
+    ax.set_xlim([-1, 1])
+    ax.set_ylim([-1, 1])
+    ax.set_zlim([-1, 1])
+
+def plot_quaternion_m(ax, attitude):
+    if not attitude.strip():  # Check if attitude data is empty
+        return
+    
+    lines = attitude.strip().split('\n')
+    q0 = float(lines[0].split()[-1])
+    q1 = float(lines[1].split()[-1])
+    q2 = float(lines[2].split()[-1])
+    q3 = float(lines[3].split()[-1])
+    
+    # Normalize quaternion to have unit norm
+    norm = np.sqrt(q0**2 + q1**2 + q2**2 + q3**2)
+    q0 /= norm
+    q1 /= norm
+    q2 /= norm
+    q3 /= norm
+
+    if q2 < 0:
+        q2 = -q2
+    
+    # Define the arrow directions based on the quaternion components
+    arrows = np.array([
+        [[0, 0, 0, q0, 0, 0]],  # i
+        [[0, 0, 0, 0, q1, 0]],  # j
+        [[0, 0, 0, 0, 0, q2]]   # k
+    ])
+    
+    # Define colors for the arrows
+    colors = ['r', 'g', 'b']
+    
+    # Plot each arrow
+    for i, (arrow, color) in enumerate(zip(arrows, colors)):
+        ax.quiver(*arrow[0], length=0.1, color=color, normalize=True)
+
+# Function to run the command for each image and read the attitude data
+def process_image(image_path):
+    command = f"./lost pipeline \
+        --png {image_path} \
+        --focal-length 4.25 \
+        --pixel-size 1.4 \
+        --centroid-algo cog \
+        --centroid-mag-filter 5 \
+        --database my-database.dat \
+        --star-id-algo py \
+        --angular-tolerance 0.05 \
+        --false-stars 1000 \
+        --max-mismatch-prob 0.0001 \
+        --attitude-algo dqm \
+        --print-attitude attitude.txt \
+        --plot-output annotated-{os.path.basename(image_path)}"
+    os.system(command)
+    
+    with open("attitude.txt", "r") as file:
+        all_lines = file.readlines()
+        last_four_lines = ''.join(all_lines[-4:])
+        # Clear the attitude.txt file
+    with open("attitude.txt", "w"):
+        pass
+    return last_four_lines
+
+# Path to the folder containing images
+current_directory = os.getcwd()
+image_folder = os.path.join(current_directory, "Demo")
+
+# Preparing the figure for plotting
+# Iterate through each image in the folder
+# Initialize the first figure and axes
+fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(70, 10))  # Adjust figsize as needed
+
+current_row = 0
+image_count = 0
+
+filenames = [f for f in os.listdir(image_folder) if f.endswith('.png')]
+filenames.sort(key=lambda x: int(x.split('.')[0]))  # Sorting numerically based on the number before '.png'
+# Iterate through each image in the folder
+for filename in filenames:
+    if filename.endswith(".png"):
+        image_path = os.path.join(image_folder, filename)
+        attitude = process_image(image_path)
+        print(f"Attitude for {image_path}: {attitude}")
+        
+        # Load the image using PIL
+        img = Image.open(image_path)
+        
+        # Plot the image and its quaternion plot
+        if current_row < len(axs):
+            ax = axs[current_row]
+            ax.imshow(img)
+            ax.set_title(filename)
+            ax.axis('off')
+            
+            # Create a subplot for quaternion plot
+            ax_quaternion = ax.inset_axes([0.7, 0.1, 0.2, 0.2], projection='3d')
+            ax_quaternion.patch.set_alpha(0.01)
+            ax_quaternion.axis('off')
+            plot_quaternion(ax_quaternion, attitude)
+            ax_quaternion.set_box_aspect([1, 1, 1])
+            
+            current_row += 1
+            image_count += 1
+        
+        # If 2 images have been processed, show the plot and reset for the next figure
+        if image_count == 2:
+            plt.tight_layout()
+            plt.show()  # Display the current figure
+            fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(70, 10))  # Reset figure
+            current_row = 0
+            image_count = 0
+
+# Show any remaining plots if less than 2 images in the last figure
+if image_count > 0:
+    plt.tight_layout()
+    plt.show()
